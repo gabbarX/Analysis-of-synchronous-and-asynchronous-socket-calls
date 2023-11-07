@@ -9,7 +9,7 @@
 
 #define PORT 8080
 #define ADDIP "10.0.2.15"
-#define MAX_CLIENTS 1024
+#define MAX_CLIENTS 3000
 
 long long factorial(long long n) {
     if (n > 20) {
