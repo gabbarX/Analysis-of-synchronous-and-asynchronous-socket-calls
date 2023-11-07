@@ -30,6 +30,7 @@ int check(int exp, const char* msg){
 	}
 }
 
+
 int main(){
 	int sockfd, b, newSocket;
 	struct sockaddr_in serverAddr;
@@ -59,7 +60,7 @@ int main(){
 		exit(1);
 	}
 
-	if(listen(sockfd, 10) == 0){
+	if(listen(sockfd, 3000) == 0){
 		printf("Listening...\n\n");
 	}
 	else{
@@ -76,27 +77,28 @@ int main(){
 		}
 
 		if((pid = fork()) == 0){
-
-			close(sockfd);
-
-			while(1){
-
-				close(sockfd);
-
-				unsigned long long x;
-				bzero(mssg, 100);
-				recv(newSocket, &mssg, sizeof(mssg), 0);
-
-				printf("Client x: %s\n", mssg);
-				int num = atoi(mssg);
-				x = factorial(num);
-				printf("factorial is %llu",x);
-				bzero(mssg, 100);
-				sprintf( mssg, "%lld", x);
-				
-				send(newSocket, &mssg, sizeof(mssg), 0);
-				x=0;
+			char buffer[1024];
+			bzero(buffer,1024);
+			while (1) {
+				ssize_t valread = recv(newSocket, buffer, sizeof(buffer),0);
+				if (valread < 0) {
+					perror("Read error");
+				} else if (valread == 0) {
+					break;
+				} else {
+					unsigned long long n;
+					if (sscanf(buffer, "%llu", &n) == 1) {
+						unsigned long long result = factorial(n);
+						printf("Factorial uwu of %llu is %llu\n", n, result);
+						char response[100];
+						snprintf(response, sizeof(response), "Factorial of %llu is %llu\n", n, result);
+						send(newSocket, response, strlen(response), 0);
+					}
+				}
 			}
+
+			close(newSocket);
+			exit(0);
 		}
 		else if(pid<0){
 			perror("Fork failed!\n");
