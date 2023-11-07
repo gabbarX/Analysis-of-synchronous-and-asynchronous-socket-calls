@@ -48,15 +48,23 @@ int main(){
 
 
 	memset(&serverAddr, '\0', sizeof(serverAddr));
-	serverAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
+	serverAddr.sin_addr.s_addr = inet_addr(ADDIP);
 	serverAddr.sin_family = AF_INET;
 	serverAddr.sin_port = htons(PORT);
 
 
 	b = bind(sockfd, (struct sockaddr*)&serverAddr, sizeof(serverAddr));
-	check(b, "error in bind\n");
+	if(b<0){
+		printf("Error in binding!\n");
+		exit(1);
+	}
 
-	if(listen(sockfd, 10) < 0)perror("Error on listening\n");
+	if(listen(sockfd, 10) == 0){
+		printf("Listening...\n\n");
+	}
+	else{
+		perror("Error on listening\n");
+	};
 
 
 	while(1){
@@ -86,7 +94,6 @@ int main(){
 				recv(newSocket, &mssg, sizeof(mssg), 0);
 
 				printf("Client x: %s\n", mssg);
-
 				int num = atoi(mssg);
 				x = factorial(num);
 				fprintf(filedis, "IP : %s  PORT : %d \n INTEGER : %d  FACTORIAL : %lld\n", IP, PORT_NO, num, x );
