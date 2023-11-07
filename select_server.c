@@ -6,130 +6,126 @@
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <pthread.h>
-#include <sys/select.h>
-#include <sys/time.h>
-#include <time.h>
-
-#define LOG_FILE_NAME "2d2.txt"
-FILE *filedis = NULL;
 
 #define PORT 8080
 #define ADDIP "10.0.2.15"
+#define MAX_CLIENTS 1024
 
-long long factorial(long long n){
-    if(n>20){
+long long factorial(long long n) {
+    if (n > 20) {
         n = 20;
     }
-	unsigned long long ans = 1;
-	for (int i = 1 ; i <= n ; i++){
-		ans *= i;
-	}
-	return ans;
+    unsigned long long ans = 1;
+    for (int i = 1; i <= n; i++) {
+        ans *= i;
+    }
+    return ans;
 }
 
+int main() {
+    int sockfd, newSocket, max_sd;
+    int client_sockets[MAX_CLIENTS];
+    fd_set read_fds;
+    char buffer[1024];
 
-int check(int exp, const char* msg){
-	if( exp < 0){
-		perror(msg);
-		exit(1);
-	}
-}
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        client_sockets[i] = 0;
+    }
 
+    sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    if (sockfd < 0) {
+        perror("Error in socket");
+        exit(1);
+    }
 
-int main(){
+    struct sockaddr_in serverAddr, clientAddr;
+    socklen_t addr_size = sizeof(clientAddr);
 
-	int sockfd, b, newSocket;
+    serverAddr.sin_addr.s_addr = inet_addr(ADDIP);
+    serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(PORT);
 
-	struct sockaddr_in serverAddr, clienAddr;
+    if (bind(sockfd, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) < 0) {
+        perror("Error in binding");
+        exit(1);
+    }
 
-	socklen_t addr_size;
+    if (listen(sockfd, 10) < 0) {
+        perror("Error on listening");
+        exit(1);
+    }
 
-	char mssg[100];   
-	pid_t pid;
+    printf("Server is ready...\n");
 
-	sockfd = socket(AF_INET, SOCK_STREAM, 0);
-	check(sockfd, "error in socket\n");
+    while (1) {
+        FD_ZERO(&read_fds);
+        FD_SET(sockfd, &read_fds);
+        max_sd = sockfd;
 
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            int sd = client_sockets[i];
 
-	memset(&serverAddr, '\0', sizeof(serverAddr));
-	serverAddr.sin_addr.s_addr = inet_addr(ADDIP);
-	serverAddr.sin_family = AF_INET;
-	serverAddr.sin_port = htons(PORT);
-
-
-	b = bind(sockfd, (struct sockaddr*)&serverAddr, sizeof(serverAddr));
-	check(b, "error in bind\n");
-
-	if(listen(sockfd, 10) < 0)perror("Error on listening\n");
-
-
-    fd_set fds, readfds;
-    FD_ZERO(&fds);
-    FD_SET(sockfd, &fds);
-    if( filedis == NULL)filedis = fopen( LOG_FILE_NAME, "w");
-    int fdmax = sockfd;
-
-
-	double time_spent = 0.0;
-	clock_t begin = clock();
-
-
-    while(1){
-
-
-        readfds = fds;
-
-        if( select(fdmax + 1 , &readfds, NULL, NULL, NULL) < 0)perror("error at select");
-        
-        for( int fd = 0; fd < (fdmax + 1); fd++){
-            
-            if( FD_ISSET( fd, &readfds)){  // check if this fd is ready for reading
-
-                if( fd == sockfd){    // request for new connection
-
-                    newSocket = accept(sockfd, (struct sockaddr*)&clienAddr, &addr_size);
-                    if(newSocket < 0){
-                        exit(1);
-                    }
-
-                    char *IP = inet_ntoa(clienAddr.sin_addr);
-                    int PORT_NO = ntohs(clienAddr.sin_port);
-                    
-
-                    fprintf(filedis, "IP : %s  PORT : %d\n", IP, PORT_NO);
-                    
-                    printf("Connection accepted from IP : %s: and PORT : %d\n", IP, PORT_NO);
-
-                    FD_SET(newSocket, &fds);
-                    if( newSocket > fdmax)fdmax = newSocket;
-
-
-                }else{   // some client is sending data
-
-                    bzero(mssg, 100);
-                    int numbytes = recv( fd, &mssg, sizeof(mssg), 0);
-
-                    long long num = atoi(mssg);
-                    fprintf(filedis, "INTEGER : %lld  FACTORIAL : %lld\n", num , factorial(num));
-                    sprintf(mssg, "%lld", factorial(num));
-
-                    send(fd, &mssg, sizeof(mssg), 0);
-
+            if (sd > 0) {
+                FD_SET(sd, &read_fds);
+                if (sd > max_sd) {
+                    max_sd = sd;
                 }
-
             }
         }
 
+        int activity = select(max_sd + 1, &read_fds, NULL, NULL, NULL);
+
+        if (activity < 0) {
+            perror("Select error");
+        }
+
+        if (FD_ISSET(sockfd, &read_fds)) {
+            newSocket = accept(sockfd, (struct sockaddr*)&clientAddr, &addr_size);
+            if (newSocket < 0) {
+                perror("Accept error");
+            } else {
+                printf("New connection, socket fd is %d\n", newSocket);
+
+                for (int i = 0; i < MAX_CLIENTS; i++) {
+                    if (client_sockets[i] == 0) {
+                        client_sockets[i] = newSocket;
+                        break;
+                    }
+                }
+            }
+        }
+
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            int sd = client_sockets[i];
+
+            if (FD_ISSET(sd, &read_fds)) {
+                ssize_t valread = read(sd, buffer, sizeof(buffer));
+
+                if (valread <= 0) {
+                    getpeername(sd, (struct sockaddr*)&clientAddr, &addr_size);
+                    printf("Host disconnected, ip %s, port %d\n",
+                           inet_ntoa(clientAddr.sin_addr), ntohs(clientAddr.sin_port));
+                    close(sd);
+                    client_sockets[i] = 0;
+                } else {
+                    buffer[valread] = '\0';
+                    printf("Received: %s\n", buffer);
+
+                    unsigned long long n;
+                    if (sscanf(buffer, "%llu", &n) == 1) {
+                        unsigned long long result = factorial(n);
+                        printf("Factorial of %llu is %llu\n", n, result);
+                        char response[100];
+                        snprintf(response, sizeof(response), "Factorial of %llu is %llu\n", n, result);
+						printf("Factorial of %llu is %llu\n", n, result);
+                        send(sd, response, strlen(response), 0);
+                    }
+                }
+            }
+        }
     }
-    
-    
-    clock_t end = clock();
-	time_spent += (double)(end - begin) / CLOCKS_PER_SEC;
-    printf("The elapsed time is %f seconds", time_spent);
 
     close(sockfd);
 
-	return 0;
+    return 0;
 }
-

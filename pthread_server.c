@@ -113,6 +113,7 @@ int main() {
             }
             threadCount++;
         } else {
+            // Handle the case when the thread pool is full
             printf("Thread pool is full. Rejecting the connection.\n");
             close(newSocket);
         }
