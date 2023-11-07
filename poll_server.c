@@ -104,7 +104,6 @@ int main() {
                     unsigned long long n;
                     if (sscanf(buffer, "%llu", &n) == 1) {
                         unsigned long long result = fact(n);
-                        printf("%llu ", result);
                         char response[100];
                         snprintf(response, sizeof(response), "Factorial of %llu is %llu\n", n, result);
                         send(client_sockets[i], response, strlen(response), 0);
