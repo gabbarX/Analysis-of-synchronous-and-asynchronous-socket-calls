@@ -37,10 +37,9 @@ void handle_client(int client_fd) {
             unsigned long long n;
             if (sscanf(buffer, "%llu", &n) == 1) {
                 unsigned long long result = fact(n);
-                
+                printf("Factorial uwu of %llu is %llu\n", n, result);
                 char response[100];
                 snprintf(response, sizeof(response), "Factorial of %llu is %llu\n", n, result);
-                
                 send(client_fd, response, strlen(response), 0);
             }
         }

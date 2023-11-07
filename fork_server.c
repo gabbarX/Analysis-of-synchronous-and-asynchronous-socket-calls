@@ -6,8 +6,7 @@
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#define LOG_FILE_NAME "2b.txt"
-FILE *filedis = NULL;
+#include <sys/wait.h>
 
 #define PORT 8080
 #define ADDIP "10.0.2.15"
@@ -32,13 +31,10 @@ int check(int exp, const char* msg){
 }
 
 int main(){
-
-
 	int sockfd, b, newSocket;
-
-	struct sockaddr_in serverAddr, clienAddr;
-
-	socklen_t addr_size;
+	struct sockaddr_in serverAddr;
+	socklen_t addr_size = sizeof(serverAddr);
+	int opt = 1;
 
 	char mssg[100];   
 	pid_t pid;
@@ -46,8 +42,12 @@ int main(){
 	sockfd = socket(AF_INET, SOCK_STREAM, 0);
 	check(sockfd, "error in socket\n");
 
+	if(setsockopt(sockfd,SOL_SOCKET,SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))== -1){
+		perror("Setsockopt failed");
+		exit(1);
+	}
 
-	memset(&serverAddr, '\0', sizeof(serverAddr));
+	// memset(&serverAddr, '\0', sizeof(serverAddr));
 	serverAddr.sin_addr.s_addr = inet_addr(ADDIP);
 	serverAddr.sin_family = AF_INET;
 	serverAddr.sin_port = htons(PORT);
@@ -66,49 +66,47 @@ int main(){
 		perror("Error on listening\n");
 	};
 
+	printf("Server is ready..\n");
 
 	while(1){
 
-		newSocket = accept(sockfd, (struct sockaddr*)&clienAddr, &addr_size);
+		newSocket = accept(sockfd, (struct sockaddr*)&serverAddr, &addr_size);
 		if(newSocket < 0){
 			exit(1);
 		}
 
-		char *IP = inet_ntoa(clienAddr.sin_addr);
-		int PORT_NO = ntohs(clienAddr.sin_port);
-
-		if( filedis == NULL)filedis = fopen( LOG_FILE_NAME, "w");
-
-		printf("Connection accepted from IP : %s: and PORT : %d\n", IP, PORT_NO);
-
 		if((pid = fork()) == 0){
 
 			close(sockfd);
-			
-			int k=0;
 
-			while(k++ <20){
+			while(1){
 
-				long long x;
+				close(sockfd);
+
+				unsigned long long x;
 				bzero(mssg, 100);
 				recv(newSocket, &mssg, sizeof(mssg), 0);
 
 				printf("Client x: %s\n", mssg);
 				int num = atoi(mssg);
 				x = factorial(num);
-				fprintf(filedis, "IP : %s  PORT : %d \n INTEGER : %d  FACTORIAL : %lld\n", IP, PORT_NO, num, x );
+				printf("factorial is %llu",x);
 				bzero(mssg, 100);
 				sprintf( mssg, "%lld", x);
 				
 				send(newSocket, &mssg, sizeof(mssg), 0);
 				x=0;
-					
 			}
-
 		}
-		
+		else if(pid<0){
+			perror("Fork failed!\n");
+			exit(EXIT_FAILURE);
+		}	
+		else{
+			close(newSocket);
+			wait(NULL);
+		}
 	}
-
 	close(newSocket);
 
 	return 0;
