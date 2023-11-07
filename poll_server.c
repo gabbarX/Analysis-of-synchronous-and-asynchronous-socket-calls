@@ -3,110 +3,117 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
-#include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <poll.h>
+#include <sys/poll.h>
 
 #define PORT 8080
 #define MAX_CLIENTS 4000
 
-long long factorial(long long n) {
+unsigned long long fact(int n) {
     if (n > 20) {
         n = 20;
     }
-    unsigned long long ans = 1;
+    unsigned long long result = 1;
     for (int i = 1; i <= n; i++) {
-        ans *= i;
+        result *= i;
     }
-    return ans;
+    return result;
 }
 
 int main() {
-    int sockfd, newSocket;
-    struct pollfd client_sockets[MAX_CLIENTS];
-    char buffer[1024];
+    int server_fd, new_socket, client_sockets[MAX_CLIENTS];
+    struct sockaddr_in address;
+    int opt = 1;
+    int addrlen = sizeof(address);
 
-    for (int i = 0; i < MAX_CLIENTS; i++) {
-        client_sockets[i].fd = -1;
-        client_sockets[i].events = POLLIN;
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+        perror("Socket creation failed");
+        exit(EXIT_FAILURE);
     }
 
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd < 0) {
-        perror("Error in socket");
-        exit(1);
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt)) == -1) {
+        perror("Setsockopt failed");
+        exit(EXIT_FAILURE);
     }
 
-    struct sockaddr_in serverAddr, clientAddr;
-    socklen_t addr_size = sizeof(clientAddr);
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = INADDR_ANY;
+    address.sin_port = htons(PORT);
 
-    serverAddr.sin_addr.s_addr = INADDR_ANY;
-    serverAddr.sin_family = AF_INET;
-    serverAddr.sin_port = htons(PORT);
-
-    if (bind(sockfd, (struct sockaddr*)&serverAddr, sizeof(serverAddr)) < 0) {
-        perror("Error in binding");
-        exit(1);
+    if (bind(server_fd, (struct sockaddr*)&address, sizeof(address)) < 0) {
+        perror("Bind failed");
+        exit(EXIT_FAILURE);
     }
 
-    if (listen(sockfd, 10) < 0) {
-        perror("Error on listening");
-        exit(1);
+    if (listen(server_fd, MAX_CLIENTS) < 0) {
+        perror("Listen failed");
+        exit(EXIT_FAILURE);
     }
 
-    printf("Server is ready...\n");
+    struct pollfd fds[MAX_CLIENTS];
+    memset(fds, 0, sizeof(fds));
+
+    fds[0].fd = server_fd;
+    fds[0].events = POLLIN;
 
     while (1) {
-        int active_connections = 0;
+        if (poll(fds, MAX_CLIENTS, -1) < 0) {
+            perror("Poll error");
+            exit(EXIT_FAILURE);
+        }
 
-        for (int i = 0; i < MAX_CLIENTS; i++) {
-            if (client_sockets[i].fd == -1) {
-                client_sockets[i].fd = accept(sockfd, (struct sockaddr*)&clientAddr, &addr_size);
-                if (client_sockets[i].fd < 0) {
+        if (fds[0].revents & POLLIN) {
+            if ((new_socket = accept(server_fd, (struct sockaddr*)&address, (socklen_t*)&addrlen)) < 0) {
+                perror("Accept failed");
+                exit(EXIT_FAILURE);
+            }
+
+            int i;
+            for (i = 1; i < MAX_CLIENTS; i++) {
+                if (client_sockets[i] == 0) {
+                    client_sockets[i] = new_socket;
+                    fds[i].fd = new_socket;
+                    fds[i].events = POLLIN;
                     break;
                 }
-                printf("New connection, socket fd is %d\n", client_sockets[i].fd);
-                active_connections++;
             }
+
+            if (i == MAX_CLIENTS) {
+                perror("Too many clients");
+                close(new_socket);
+            }
+
+            fds[0].revents = 0;
         }
 
-        int poll_result = poll(client_sockets, active_connections, -1);
-        if (poll_result < 0) {
-            perror("Error in poll");
-            exit(1);
-        }
-
-        for (int i = 0; i < MAX_CLIENTS; i++) {
-            int fd = client_sockets[i].fd;
-
-            if (fd != -1 && (client_sockets[i].revents & POLLIN)) {
-                ssize_t valread = read(fd, buffer, sizeof(buffer));
-
-                if (valread <= 0) {
-                    getpeername(fd, (struct sockaddr*)&clientAddr, &addr_size);
-                    printf("Host disconnected, ip %s, port %d\n",
-                           inet_ntoa(clientAddr.sin_addr), ntohs(clientAddr.sin_port));
-                    close(fd);
-                    client_sockets[i].fd = -1;
+        for (int i = 1; i < MAX_CLIENTS; i++) {
+            if (client_sockets[i] > 0 && (fds[i].revents & POLLIN)) {
+                char buffer[1024];
+                ssize_t valread = read(client_sockets[i], buffer, sizeof(buffer));
+                if (valread < 0) {
+                    perror("Read error");
+                    close(client_sockets[i]);
+                    fds[i].fd = -1;
+                    client_sockets[i] = -1;
+                } else if (valread == 0) {
+                    close(client_sockets[i]);
+                    fds[i].fd = -1;
+                    client_sockets[i] = -1;
                 } else {
-                    buffer[valread] = '\0';
-                    printf("Received: %s\n", buffer);
-
                     unsigned long long n;
                     if (sscanf(buffer, "%llu", &n) == 1) {
-                        unsigned long long result = factorial(n);
-                        printf("Factorial of %llu is %llu\n", n, result);
+                        unsigned long long result = fact(n);
+                        printf("%llu ", result);
                         char response[100];
                         snprintf(response, sizeof(response), "Factorial of %llu is %llu\n", n, result);
-                        send(fd, response, strlen(response), 0);
+                        send(client_sockets[i], response, strlen(response), 0);
                     }
                 }
+                fds[i].revents = 0;
             }
         }
     }
 
-    close(sockfd);
-
-    return 0;
+    return 0;
 }
